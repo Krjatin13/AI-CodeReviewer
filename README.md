@@ -40,7 +40,7 @@ Code Reviewer AI is an advanced code review and optimization tool powered by Goo
 ### 1. **Clone the Repository**
 
 ```bash
-git clone https://github.com/rnxtremer/AI-CodeReviewer.git
+git clone https://github.com/Krjatin13/AI-CodeReviewer.git
 cd AI-CodeReviewer
 ```
 
