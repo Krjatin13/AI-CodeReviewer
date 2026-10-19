@@ -6,6 +6,17 @@ from dotenv import load_dotenv
 from google import genai
 
 # Load environment variables
+
+
+api_key = os.getenv("GEMINI_API_KEY")
+if not api_key:
+    raise ValueError("GEMINI_API_KEY is not set")
+
+client = genai.Client(api_key=api_key)
+
+
+
+
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
