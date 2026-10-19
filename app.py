@@ -1,51 +1,74 @@
-from dotenv import load_dotenv
+
 import os
 from flask import Flask, request, jsonify
-import google.generativeai as genai
 from flask_cors import CORS
+from dotenv import load_dotenv
+from google import genai
 
 # Load environment variables
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-print(f"GEMINI_API_KEY: {GEMINI_API_KEY}")  
 
-# Configure Gemini API
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-else:
-    raise ValueError("GEMINI_API_KEY is not set!")
+if not GEMINI_API_KEY:
+    raise ValueError("GEMINI_API_KEY is not configured!")
+
+# Configure Gemini client
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 app = Flask(__name__)
 CORS(app, resources={r"/review": {"origins": "*"}})
-@app.route('/review', methods=['POST'])
+
+
+@app.route("/review", methods=["POST"])
 def review_code():
-    data = request.get_json()
-    code = data.get("code", "")
-    language = data.get("language", "")
+    data = request.get_json(silent=True) or {}
+    code = data.get("code", "").strip()
+    language = data.get("language", "").strip()
 
     if not code or not language:
-        return jsonify({"error": "Please provide code and language"}), 400
+        return jsonify({
+            "error": "Please provide code and language"
+        }), 400
 
-    # Define the prompt for Gemini
-    prompt = (
-        f"You are a highly skilled code reviewer. Review the following {language} code and provide suggestions, optimizations, "
-        f"and best practices. Format the response using markdown for clarity.\n\n"
-        f"### Code:\n```{language}\n{code}\n```\n\n### Review:"
-    )
+    prompt = f"""
+You are an expert code reviewer.
+
+Review this {language} code for:
+1. Bugs and logic errors
+2. Security vulnerabilities
+3. Code quality and best practices
+4. Performance and optimization
+5. Suggested corrected code
+
+Explain each issue clearly. Use Markdown.
+
+Code:
+```{language}
+{code}
+```
+"""
 
     try:
-        model = genai.GenerativeModel("gemini-pro")
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model="gemini-3.6-flash",
+            contents=prompt
+        )
 
-        if response and hasattr(response, "text"):
-            # Format the review response as markdown
-            formatted_review = response.text.strip()
-            return jsonify({"review": formatted_review})
-        else:
-            return jsonify({"error": "Failed to get a proper review from Gemini"}), 500
+        review = (response.text or "").strip()
 
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        if not review:
+            return jsonify({
+                "error": "Gemini returned an empty review."
+            }), 502
+
+        return jsonify({"review": review}), 200
+
+    except Exception:
+        app.logger.exception("Gemini code review failed")
+        return jsonify({
+            "error": "Code review failed. Check the server logs and Gemini API configuration."
+        }), 502
+
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
