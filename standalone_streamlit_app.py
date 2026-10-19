@@ -2,19 +2,23 @@ import streamlit as st
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
-from google import genai
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-
-# Load environment variables
 load_dotenv()
 
-# Configure Gemini API
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-else:
-    st.error("GEMINI_API_KEY is not set! Please add it to your environment variables.")
+def get_api_key():
+    # 1. Streamlit Secrets (for Streamlit Community Cloud deployment)
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+        if "GOOGLE_API_KEY" in st.secrets:
+            return st.secrets["GOOGLE_API_KEY"]
+    except Exception:
+        pass
+    # 2. Session state (from user sidebar input)
+    if st.session_state.get("api_key"):
+        return st.session_state["api_key"]
+    # 3. Environment variable (.env or system)
+    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 # Function to toggle theme
 def toggle_theme():
@@ -90,6 +94,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Sidebar configuration
+with st.sidebar:
+    st.markdown("### ⚙️ Settings")
+    default_key = get_api_key() or ""
+    api_key_input = st.text_input(
+        "Gemini API Key",
+        value=st.session_state.get("api_key", default_key),
+        type="password",
+        placeholder="Paste your Gemini API key...",
+        help="Optional if set in Streamlit Secrets. Get a key at https://aistudio.google.com/app/apikey"
+    )
+    if api_key_input:
+        st.session_state.api_key = api_key_input.strip()
+    st.markdown("[🔑 Get a free Gemini API Key](https://aistudio.google.com/app/apikey)")
+
 # Theme toggle button on the main screen
 col1, col2 = st.columns([10, 1])
 with col2:
@@ -117,11 +136,15 @@ language = st.selectbox(
 
 # Get Code Review button
 if st.button("Get Code Review"):
+    active_key = get_api_key()
     if not code.strip():
         st.error("Please provide some code to review.")
+    elif not active_key:
+        st.warning("⚠️ **Gemini API Key Required**: Please enter your Gemini API Key in the left sidebar to review code.")
     else:
         with st.spinner("Getting Code Review..."):
             try:
+                genai.configure(api_key=active_key)
                 # Define the prompt for Gemini
                 prompt = (
                     f"You are a highly skilled code reviewer. Review the following {language} code and provide suggestions, optimizations, "
@@ -130,16 +153,28 @@ if st.button("Get Code Review"):
                     f"do not use heading Code Review "
                 )
 
-                # Generate review using Gemini
-              response = client.models.generate_content(
-    model="gemini-flash-latest",
-    contents=prompt
-)
+                # Generate review using Gemini with automatic fallback
+                models_to_try = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-pro-latest"]
+                review_success = False
+                last_error = None
 
-                if response and hasattr(response, "text"):
-                    st.session_state.review_output = response.text.strip()
-                else:
-                    st.error("Failed to get a proper review from Gemini.")
+                for model_name in models_to_try:
+                    try:
+                        model = genai.GenerativeModel(model_name)
+                        response = model.generate_content(prompt)
+                        if response and hasattr(response, "text"):
+                            st.session_state.review_output = response.text.strip()
+                            review_success = True
+                            break
+                    except Exception as err:
+                        last_error = err
+                        continue
+
+                if not review_success:
+                    if last_error:
+                        st.error(f"An error occurred: {str(last_error)}")
+                    else:
+                        st.error("Failed to get a proper review from Gemini.")
             except Exception as e:
                 st.error(f"An error occurred: {str(e)}")
 

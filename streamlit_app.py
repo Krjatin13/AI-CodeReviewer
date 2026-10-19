@@ -1,5 +1,22 @@
 import streamlit as st
 import requests
+import os
+from dotenv import load_dotenv
+import google.generativeai as genai
+
+load_dotenv()
+
+def get_api_key():
+    try:
+        if "GEMINI_API_KEY" in st.secrets:
+            return st.secrets["GEMINI_API_KEY"]
+        if "GOOGLE_API_KEY" in st.secrets:
+            return st.secrets["GOOGLE_API_KEY"]
+    except Exception:
+        pass
+    if st.session_state.get("api_key"):
+        return st.session_state["api_key"]
+    return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 # Function to toggle theme
 def toggle_theme():
@@ -75,6 +92,21 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# Sidebar configuration
+with st.sidebar:
+    st.markdown("### ⚙️ Settings")
+    default_key = get_api_key() or ""
+    api_key_input = st.text_input(
+        "Gemini API Key",
+        value=st.session_state.get("api_key", default_key),
+        type="password",
+        placeholder="Paste your Gemini API key...",
+        help="Optional if configured in Streamlit Secrets. Get a free key at https://aistudio.google.com/app/apikey"
+    )
+    if api_key_input:
+        st.session_state.api_key = api_key_input.strip()
+    st.markdown("[🔑 Get a free Gemini API Key](https://aistudio.google.com/app/apikey)")
+
 # Theme toggle button on the main screen
 col1, col2 = st.columns([10, 1])
 with col2:
@@ -100,23 +132,62 @@ if st.button("Get Code Review"):
         st.error("Please provide some code to review.")
     else:
         with st.spinner("Getting Code Review..."):
-            try:
-                API_URL = st.secrets["API_URL"].rstrip("/")
+            handled = False
+            # Option 1: Try Flask backend if configured in Streamlit Secrets
+            if "API_URL" in st.secrets:
+                try:
+                    API_URL = st.secrets["API_URL"].rstrip("/")
+                    response = requests.post(
+                        f"{API_URL}/review",
+                        json={
+                            "code": code,
+                            "language": language.split(" ")[0]
+                        },
+                        timeout=15
+                    )
+                    if response.status_code == 200:
+                        st.session_state.review_output = response.json().get("review", "No review available.")
+                        handled = True
+                except Exception:
+                    pass
 
-response = requests.post(
-    f"{API_URL}/review",
-    json={
-        "code": code,
-        "language": language.split(" ")[0]
-    },
-    timeout=120
-)
-                if response.status_code == 200:
-                    st.session_state.review_output = response.json().get("review", "No review available.")
+            # Option 2: Direct Gemini review (default/standalone mode)
+            if not handled:
+                active_key = get_api_key()
+                if not active_key:
+                    st.warning("⚠️ **Gemini API Key Required**: Please enter your Gemini API Key in the left sidebar to review code.")
                 else:
-                    st.error(f"Error: {response.json().get('error', 'Unknown error occurred.')}")
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
+                    try:
+                        genai.configure(api_key=active_key)
+                        prompt = (
+                            f"You are a highly skilled code reviewer. Review the following {language} code and provide suggestions, optimizations, "
+                            f"and best practices. Format the response using markdown for clarity.\n\n"
+                            f"### Code:\n```{language}\n{code}\n```\n\n### Review:"
+                            f"do not use heading Code Review "
+                        )
+
+                        models_to_try = ["gemini-3.8-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-pro-latest"]
+                        review_success = False
+                        last_err = None
+                        for model_name in models_to_try:
+                            try:
+                                model = genai.GenerativeModel(model_name)
+                                gen_resp = model.generate_content(prompt)
+                                if gen_resp and hasattr(gen_resp, "text"):
+                                    st.session_state.review_output = gen_resp.text.strip()
+                                    review_success = True
+                                    break
+                            except Exception as m_err:
+                                last_err = m_err
+                                continue
+
+                        if not review_success:
+                            if last_err:
+                                st.error(f"Error occurred: {str(last_err)}")
+                            else:
+                                st.error("Failed to get review from Gemini.")
+                    except Exception as direct_err:
+                        st.error(f"An error occurred: {str(direct_err)}")
 
 # Display the review output if it exists
 if st.session_state.review_output:
