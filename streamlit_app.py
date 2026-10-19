@@ -101,10 +101,16 @@ if st.button("Get Code Review"):
     else:
         with st.spinner("Getting Code Review..."):
             try:
-                response = requests.post(
-                    "http://localhost:5000/review",
-                    json={"code": code, "language": language},
-                )
+                API_URL = st.secrets["API_URL"].rstrip("/")
+
+response = requests.post(
+    f"{API_URL}/review",
+    json={
+        "code": code,
+        "language": language.split(" ")[0]
+    },
+    timeout=120
+)
                 if response.status_code == 200:
                     st.session_state.review_output = response.json().get("review", "No review available.")
                 else:
