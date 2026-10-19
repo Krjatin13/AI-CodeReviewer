@@ -5,25 +5,17 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 from google import genai
 
-# Load environment variables
-
-
-api_key = os.getenv("GEMINI_API_KEY")
-if not api_key:
-    raise ValueError("GEMINI_API_KEY is not set")
-
-client = genai.Client(api_key=api_key)
-
-
-
-
+# Load environment variables before reading the API key
 load_dotenv()
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 if not GEMINI_API_KEY:
-    raise ValueError("GEMINI_API_KEY is not configured!")
+    raise ValueError(
+        "GEMINI_API_KEY is missing. Set it in your environment or .env file."
+    )
 
-# Configure Gemini client
+# Initialize Gemini client once
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 app = Flask(__name__)
@@ -33,25 +25,27 @@ CORS(app, resources={r"/review": {"origins": "*"}})
 @app.route("/review", methods=["POST"])
 def review_code():
     data = request.get_json(silent=True) or {}
+
     code = data.get("code", "").strip()
     language = data.get("language", "").strip()
 
     if not code or not language:
         return jsonify({
-            "error": "Please provide code and language"
+            "error": "Please provide both code and language."
         }), 400
 
     prompt = f"""
 You are an expert code reviewer.
 
-Review this {language} code for:
+Review the following {language} code for:
 1. Bugs and logic errors
 2. Security vulnerabilities
 3. Code quality and best practices
-4. Performance and optimization
+4. Performance improvements
 5. Suggested corrected code
 
-Explain each issue clearly. Use Markdown.
+Explain each issue clearly using Markdown.
+If there are no issues, say so and explain why.
 
 Code:
 ```{language}
@@ -61,9 +55,8 @@ Code:
 
     try:
         response = client.models.generate_content(
-    model="gemini-flash-latest",
-    contents=prompt
-)
+            model="gemini-flash-latest",
+            contents=prompt
         )
 
         review = (response.text or "").strip()
@@ -76,11 +69,15 @@ Code:
         return jsonify({"review": review}), 200
 
     except Exception:
+        # Log the error without exposing the API key
         app.logger.exception("Gemini code review failed")
         return jsonify({
-            "error": "Code review failed. Check the server logs and Gemini API configuration."
+            "error": (
+                "Code review failed. Check the server logs, API key, "
+                "and supported Gemini model."
+            )
         }), 502
 
 
 if __name__ == "__main__":
-    app.run(debug=False)
+    app.run(host="127.0.0.1", port=5000, debug=False)
