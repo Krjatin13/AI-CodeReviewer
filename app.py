@@ -13,8 +13,7 @@ if not api_key:
         "GEMINI_API_KEY is missing. Set it in CMD or your .env file."
     )
 
-client = genai.Client(api_key=api_key)
-
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 app = Flask(__name__)
 CORS(app, resources={r"/review": {"origins": "*"}})
 
