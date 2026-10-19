@@ -128,8 +128,10 @@ if st.button("Get Code Review"):
                 )
 
                 # Generate review using Gemini
-                model = genai.GenerativeModel("gemini-1.5-pro")
-                response = model.generate_content(prompt)
+              response = client.models.generate_content(
+    model="gemini-flash-latest",
+    contents=prompt
+)
 
                 if response and hasattr(response, "text"):
                     st.session_state.review_output = response.text.strip()
